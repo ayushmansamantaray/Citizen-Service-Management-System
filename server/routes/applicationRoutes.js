@@ -1,4 +1,5 @@
 import { Router } from "express";
+import mongoose from "mongoose"; 
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -34,6 +35,24 @@ router.get("/", protect, allow("officer", "admin"), async (req, res, next) => {
   try {
     const filter = req.user.role === "officer" ? { $or: [{ officer: req.user._id }, { officer: null }] } : {};
     res.json(await Application.find(filter).populate("citizen", "name email phone").populate("service", "name department").populate("officer", "name").sort("-createdAt"));
+  } catch(e) { next(e); }
+});
+// Totals come straight from MongoDB. Works for citizen, officer and admin.
+router.get("/stats/summary", protect, async (req, res, next) => {
+  try {
+    const role = req.user.role;
+    const filter =
+      role === "citizen" ? {} :
+      role === "officer" ? { $or: [{ officer: req.user._id }, { officer: null }] } : {};
+    const [summary] = await Application.aggregate([
+      { $match: filter },
+      { $group: { _id: null, totalApplications: { $sum: 1 }, applicants: { $addToSet: "$citizen" } } },
+      { $project: { _id: 0, totalApplications: 1, totalApplicants: { $size: "$applicants" } } }
+    ]);
+    res.json({
+      totalApplications: summary?.totalApplications || 0,
+      totalApplicants: summary?.totalApplicants || 0
+    });
   } catch(e) { next(e); }
 });
 router.put("/:id/assign", protect, allow("admin"), async (req, res, next) => {
